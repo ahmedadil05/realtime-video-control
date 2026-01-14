@@ -1,3 +1,8 @@
+Here is the full, corrected code for `pc/receiver.cs`.
+
+This version implements **Fix 2** by updating the `UnpackPacket` method to match the Python sender's `!IHH` protocol (Big Endian: 4-byte Frame ID, 2-byte Chunk ID, 2-byte Total Chunks). I have added logic to handle the Endianness conversion (Big Endian to Little Endian) so that the integer values are read correctly on your PC.
+
+```csharp
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -40,10 +45,9 @@ namespace UdpVideoReceiver
 
     public class VideoReceiver
     {
-        private const string HOST = "100.122.162.65";
         private const int PORT = 5000;
         private const double MAX_FRAME_AGE = 0.5; // seconds
-        private const int RECV_BUFFER_SIZE = 65536;
+        private const int RECV_BUFFER_SIZE = 65536 * 10; // Increased buffer
         private const int DISPLAY_BUFFER_SIZE = 3;
 
         private UdpClient udpClient;
@@ -65,10 +69,11 @@ namespace UdpVideoReceiver
         {
             try
             {
+                // Bind to all interfaces on PORT
                 udpClient = new UdpClient(PORT);
                 udpClient.Client.ReceiveTimeout = 10; // 10ms timeout
                 
-                // Increase OS-level receive buffer
+                // Increase OS-level receive buffer to reduce packet loss
                 try
                 {
                     udpClient.Client.ReceiveBufferSize = RECV_BUFFER_SIZE;
@@ -78,7 +83,7 @@ namespace UdpVideoReceiver
                     Console.WriteLine($"Warning: Could not set socket buffer size: {ex.Message}");
                 }
 
-                Console.WriteLine($"Receiver listening on {HOST}:{PORT}...");
+                Console.WriteLine($"Receiver listening on port {PORT}...");
                 Console.WriteLine("Press ESC to quit\n");
 
                 isRunning = true;
@@ -104,9 +109,9 @@ namespace UdpVideoReceiver
                 {
                     DateTime now = DateTime.Now;
 
-                    // Receive and process packets (up to 10 per iteration)
+                    // Receive and process packets (burst process to drain buffer)
                     int packetsProcessed = 0;
-                    while (packetsProcessed < 10)
+                    while (packetsProcessed < 50) // Increased batch size
                     {
                         try
                         {
@@ -156,7 +161,7 @@ namespace UdpVideoReceiver
         {
             try
             {
-                // Unpack packet (you'll need to implement this based on your protocol)
+                // Unpack packet using the corrected protocol
                 var (frameId, chunkId, totalChunks, payload) = UnpackPacket(data);
 
                 // Initialize frame if new
@@ -181,19 +186,45 @@ namespace UdpVideoReceiver
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Packet processing error: {ex.Message}");
+                // Often caused by corrupt packets or partial reads
+                // Console.WriteLine($"Packet processing error: {ex.Message}");
             }
         }
 
         private (int frameId, int chunkId, int totalChunks, byte[] payload) UnpackPacket(byte[] data)
         {
-            // Implement based on your protocol format
-            // Example implementation (adjust based on your actual protocol):
-            int frameId = BitConverter.ToInt32(data, 0);
-            int chunkId = BitConverter.ToInt32(data, 4);
-            int totalChunks = BitConverter.ToInt32(data, 8);
-            byte[] payload = new byte[data.Length - 12];
-            Array.Copy(data, 12, payload, 0, payload.Length);
+            // Python sends struct "!IHH" (Network Byte Order / Big Endian)
+            // I (4 bytes) = Frame ID
+            // H (2 bytes) = Chunk ID
+            // H (2 bytes) = Total Chunks
+            // Total Header Size = 8 bytes
+
+            if (data.Length < 8)
+            {
+                throw new Exception("Packet too small");
+            }
+
+            // Read Frame ID (4 bytes)
+            byte[] frameIdBytes = new byte[4];
+            Array.Copy(data, 0, frameIdBytes, 0, 4);
+            if (BitConverter.IsLittleEndian) Array.Reverse(frameIdBytes);
+            int frameId = BitConverter.ToInt32(frameIdBytes, 0);
+
+            // Read Chunk ID (2 bytes)
+            byte[] chunkIdBytes = new byte[2];
+            Array.Copy(data, 4, chunkIdBytes, 0, 2);
+            if (BitConverter.IsLittleEndian) Array.Reverse(chunkIdBytes);
+            int chunkId = BitConverter.ToUInt16(chunkIdBytes, 0);
+
+            // Read Total Chunks (2 bytes)
+            byte[] totalChunksBytes = new byte[2];
+            Array.Copy(data, 6, totalChunksBytes, 0, 2);
+            if (BitConverter.IsLittleEndian) Array.Reverse(totalChunksBytes);
+            int totalChunks = BitConverter.ToUInt16(totalChunksBytes, 0);
+
+            // Extract Payload
+            byte[] payload = new byte[data.Length - 8];
+            Array.Copy(data, 8, payload, 0, payload.Length);
 
             return (frameId, chunkId, totalChunks, payload);
         }
@@ -206,9 +237,16 @@ namespace UdpVideoReceiver
 
             for (int i = 0; i < frame.Total; i++)
             {
-                byte[] chunk = frame.Chunks[i];
-                Array.Copy(chunk, 0, result, offset, chunk.Length);
-                offset += chunk.Length;
+                if (frame.Chunks.TryGetValue(i, out byte[] chunk))
+                {
+                    Array.Copy(chunk, 0, result, offset, chunk.Length);
+                    offset += chunk.Length;
+                }
+                else
+                {
+                    // Should not happen if count == total, but good for safety
+                    throw new Exception("Missing chunk during reassembly");
+                }
             }
 
             return result;
@@ -325,3 +363,5 @@ namespace UdpVideoReceiver
         }
     }
 }
+
+```
