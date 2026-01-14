@@ -10,7 +10,7 @@ class ControlClient
         {
             // FIX: Changed port from 9000 to 5000 to match the Pi server
             // REPLACE "100.x.x.x" with your Raspberry Pi's actual Tailscale IP
-            var client = new TcpClient("100.x.x.x", 5000);
+            var client = new TcpClient("100.122.162.65", 5000);
             var stream = client.GetStream();
 
             Console.WriteLine("Connected to Control Server!");
