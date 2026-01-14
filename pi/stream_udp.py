@@ -7,7 +7,7 @@ from protocol import pack_packet
 # ==========================================
 #     CONFIGURATION 
 # ==========================================
-# I kept your IP, but changed port back to 5000 to match the PC Receiver.
+# I kept PC IP, but changed port back to 5000 to match the PC Receiver.
 ADDR = ("100.93.237.108", 5000) 
 
 # ==========================================
