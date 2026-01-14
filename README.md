@@ -1,4 +1,7 @@
-# realtime-video-control
+
+# Project Title
+
+A brief description of what this project does and who it's for
 
 Real-Time Video Streaming & Control over Tailscale
 

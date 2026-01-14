@@ -40,7 +40,7 @@ namespace UdpVideoReceiver
 
     public class VideoReceiver
     {
-        private const string HOST = "0.0.0.0";
+        private const string HOST = "100.122.162.65";
         private const int PORT = 5000;
         private const double MAX_FRAME_AGE = 0.5; // seconds
         private const int RECV_BUFFER_SIZE = 65536;

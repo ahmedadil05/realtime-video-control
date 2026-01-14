@@ -2,7 +2,7 @@ import socket
 import time
 from protocol import pack_header
 
-ADDR = ("100.x.x.x", 5000)
+ADDR = ("100.122.162.65", 5000)
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 seq = 0
