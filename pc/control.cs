@@ -6,7 +6,7 @@ class ControlClient
 {
     static void Main()
     {
-        var client = new TcpClient("100.x.x.x", 9000);
+        var client = new TcpClient("100.122.162.65", 5000);
         var stream = client.GetStream();
 
         while (true)
