@@ -3,7 +3,7 @@ import cv2
 import math
 from protocol import pack_packet # Changed from pack_header
 
-ADDR = ("100.122.162.65", 5000)
+ADDR = ("100.93.237.108", 5000)
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 MAX_PAYLOAD_SIZE = 1024
 
