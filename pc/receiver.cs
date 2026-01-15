@@ -4,6 +4,7 @@ This version implements **Fix 2** by updating the `UnpackPacket` method to match
 
 ```csharp
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using OpenCvSharp;
@@ -13,22 +14,29 @@ namespace UdpVideoReceiver
     public class VideoReceiver
     {
         // Configuration
-        private const int VIDEO_PORT = 5001; // Must match the VIDEO_PORT in the Python script
-        private const int RECV_BUFFER_SIZE = 65536; // Max UDP packet size
+        private const int VIDEO_PORT = 5001;
+        private const int RECV_BUFFER_SIZE = 65536;
+        private const double RECORDING_FPS = 30.0; // Assumed FPS for the recording
 
         // State
         private UdpClient udpClient;
         private bool isRunning;
 
+        // Recording State
+        private bool isRecording = false;
+        private VideoWriter videoWriter;
+        private StreamWriter csvWriter;
+        private string recordingTimestamp;
+
         public void Start()
         {
             try
             {
-                // Bind to all interfaces on the specified port
                 udpClient = new UdpClient(VIDEO_PORT);
                 udpClient.Client.ReceiveBufferSize = RECV_BUFFER_SIZE;
                 
                 Console.WriteLine($"Receiver listening for video on port {VIDEO_PORT}...");
+                Console.WriteLine("Press 'r' to toggle recording.");
                 Console.WriteLine("Press ESC to quit.\n");
 
                 isRunning = true;
@@ -51,100 +59,142 @@ namespace UdpVideoReceiver
             {
                 while (isRunning)
                 {
+                    Mat frame = null;
                     try
                     {
                         IPEndPoint remoteEP = null;
                         byte[] data = udpClient.Receive(ref remoteEP);
+                        
+                        frame = ProcessPacket(data);
 
-                        // Process the received packet
-                        ProcessPacket(data);
+                        if (frame != null && !frame.Empty())
+                        {
+                            // Display recording status
+                            if (isRecording)
+                            {
+                                Cv2.Circle(frame, new Point(25, 25), 10, Scalar.Red, -1);
+                                Cv2.PutText(frame, "REC", new Point(40, 32), HersheyFonts.HersheySimplex, 0.8, Scalar.Red, 2);
+                            }
+                            
+                            window.ShowImage(frame);
+                        }
                     }
                     catch (SocketException ex)
                     {
-                        // This can happen if the socket is closed or times out.
-                        // If we are still running, it's an unexpected error.
-                        if (isRunning)
-                        {
-                            Console.WriteLine($"Socket error: {ex.Message}");
-                        }
+                        if (isRunning) Console.WriteLine($"Socket error: {ex.Message}");
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error during receive loop: {ex.Message}");
                     }
-                    
-                    // Handle keyboard input to exit
-                    int key = Cv2.WaitKey(1);
-                    if (key == 27) // ESC key
+                    finally
                     {
-                        Console.WriteLine("\nShutting down...");
-                        isRunning = false;
+                        frame?.Dispose();
                     }
+                    
+                    HandleKeyboardInput();
                 }
             }
         }
 
-        private void ProcessPacket(byte[] data)
+        private Mat ProcessPacket(byte[] data)
         {
             try
             {
-                // Unpack the packet according to the new protocol
                 var (seq, timestamp, jpegBytes) = UnpackPacket(data);
-
-                // Decode the JPEG byte array into an image
                 Mat frame = Cv2.ImDecode(jpegBytes, ImreadModes.Color);
 
                 if (frame.Empty())
                 {
                     Console.WriteLine($"Warning: Decoded frame {seq} is empty.");
-                    return;
+                    return null;
                 }
                 
-                // Calculate latency
                 long latencyMs = (DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - (long)(timestamp / 1_000_000);
 
-                // Add latency text to the frame
-                Cv2.PutText(frame, $"Seq: {seq}", new Point(10, 30), HersheyFonts.HersheySimplex, 1.0, Scalar.LimeGreen, 2);
-                Cv2.PutText(frame, $"Latency: {latencyMs} ms", new Point(10, 70), HersheyFonts.HersheySimplex, 1.0, Scalar.LimeGreen, 2);
+                // Write to video and CSV if recording
+                if (isRecording)
+                {
+                    videoWriter.Write(frame);
+                    csvWriter.WriteLine($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff},{seq},{latencyMs}");
+                }
 
-                // Show the frame in the window
-                window.ShowImage(frame);
-                frame.Dispose(); // Clean up the Mat object
+                Cv2.PutText(frame, $"Seq: {seq}", new Point(10, 70), HersheyFonts.HersheySimplex, 1.0, Scalar.LimeGreen, 2);
+                Cv2.PutText(frame, $"Latency: {latencyMs} ms", new Point(10, 110), HersheyFonts.HersheySimplex, 1.0, Scalar.LimeGreen, 2);
+
+                return frame;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Packet processing error: {ex.Message}");
+                return null;
             }
         }
 
-        /// <summary>
-        /// Unpacks a byte array into the packet structure.
-        /// Protocol:
-        /// - 4 bytes: Sequence Number (uint32, network byte order)
-        /// - 8 bytes: Timestamp (uint64, network byte order)
-        /// - Remainder: JPEG image bytes
-        /// </summary>
+        private void HandleKeyboardInput()
+        {
+            int key = Cv2.WaitKey(1);
+            if (key == 27) // ESC
+            {
+                Console.WriteLine("\nShutting down...");
+                isRunning = false;
+            }
+            else if (key == 'r') // 'r' for record
+            {
+                isRecording = !isRecording;
+                if (isRecording)
+                {
+                    StartRecording();
+                }
+                else
+                {
+                    StopRecording();
+                }
+            }
+        }
+
+        private void StartRecording()
+        {
+            recordingTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string videoPath = $"video_{recordingTimestamp}.mp4";
+            string csvPath = $"meta_{recordingTimestamp}.csv";
+            
+            // Get frame dimensions from a quick capture (this is a bit of a hack)
+            // A better way would be to get it from the first valid frame.
+            // For now, we assume a resolution, e.g., 640x480.
+            Size frameSize = new Size(640, 480); // Ensure this matches the sender's resolution
+
+            videoWriter = new VideoWriter(videoPath, FourCC.H264, RECORDING_FPS, frameSize);
+            csvWriter = new StreamWriter(csvPath);
+            csvWriter.WriteLine("Timestamp,SequenceNumber,LatencyMs");
+            
+            Console.WriteLine($"--- Started Recording ---\nVideo: {videoPath}\nMeta:  {csvPath}");
+        }
+
+        private void StopRecording()
+        {
+            videoWriter?.Release();
+            csvWriter?.Close();
+            videoWriter = null;
+            csvWriter = null;
+            Console.WriteLine($"--- Stopped Recording ---");
+        }
+
         private (uint seq, ulong timestamp, byte[] jpegBytes) UnpackPacket(byte[] data)
         {
-            const int headerSize = 12; // 4 (seq) + 8 (timestamp)
-            if (data.Length < headerSize)
-            {
-                throw new Exception("Packet too small to contain header.");
-            }
+            const int headerSize = 12;
+            if (data.Length < headerSize) throw new Exception("Packet too small.");
 
-            // Read Sequence Number (4 bytes)
             byte[] seqBytes = new byte[4];
             Array.Copy(data, 0, seqBytes, 0, 4);
             if (BitConverter.IsLittleEndian) Array.Reverse(seqBytes);
             uint seq = BitConverter.ToUInt32(seqBytes, 0);
 
-            // Read Timestamp (8 bytes)
             byte[] timestampBytes = new byte[8];
             Array.Copy(data, 4, timestampBytes, 0, 8);
             if (BitConverter.IsLittleEndian) Array.Reverse(timestampBytes);
             ulong timestamp = BitConverter.ToUInt64(timestampBytes, 0);
 
-            // Extract Payload
             int payloadSize = data.Length - headerSize;
             byte[] payload = new byte[payloadSize];
             Array.Copy(data, headerSize, payload, 0, payloadSize);
@@ -154,6 +204,10 @@ namespace UdpVideoReceiver
 
         private void Cleanup()
         {
+            if (isRecording)
+            {
+                StopRecording();
+            }
             isRunning = false;
             udpClient?.Close();
             Cv2.DestroyAllWindows();
