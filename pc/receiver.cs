@@ -1,8 +1,3 @@
-Here is the full, corrected code for `pc/receiver.cs`.
-
-This version implements **Fix 2** by updating the `UnpackPacket` method to match the Python sender's `!IHH` protocol (Big Endian: 4-byte Frame ID, 2-byte Chunk ID, 2-byte Total Chunks). I have added logic to handle the Endianness conversion (Big Endian to Little Endian) so that the integer values are read correctly on your PC.
-
-```csharp
 using System;
 using System.IO;
 using System.Net;
