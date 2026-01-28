@@ -172,7 +172,7 @@ namespace UdpVideoReceiver
             csvWriter?.Close();
             videoWriter = null;
             csvWriter = null;
-            Console.WriteLine($"--- Stopped Recording ---");
+            Console.WriteLine("--- Stopped Recording ---");
         }
 
         private (uint seq, ulong timestamp, byte[] jpegBytes) UnpackPacket(byte[] data)
@@ -221,5 +221,3 @@ namespace UdpVideoReceiver
         }
     }
 }
-
-```
