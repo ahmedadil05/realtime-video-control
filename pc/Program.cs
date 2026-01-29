@@ -16,6 +16,7 @@ namespace UdpVideoReceiver
         // State
         private UdpClient udpClient;
         private bool isRunning;
+        private OpenCvSharp.Size _frameSize = new OpenCvSharp.Size();
 
         // Recording State
         private bool isRecording = false;
@@ -99,6 +100,13 @@ namespace UdpVideoReceiver
                 var (seq, timestamp, jpegBytes) = UnpackPacket(data);
                 Mat frame = Cv2.ImDecode(jpegBytes, ImreadModes.Color);
 
+                // Set frame size if not already set (assuming it's consistent)
+                if (_frameSize.Width == 0 && _frameSize.Height == 0 && !frame.Empty())
+                {
+                    _frameSize = new OpenCvSharp.Size(frame.Width, frame.Height);
+                    Console.WriteLine($"Detected frame size: {_frameSize.Width}x{_frameSize.Height}");
+                }
+
                 if (frame.Empty())
                 {
                     Console.WriteLine($"Warning: Decoded frame {seq} is empty.");
@@ -154,12 +162,14 @@ namespace UdpVideoReceiver
             string videoPath = $"video_{recordingTimestamp}.mp4";
             string csvPath = $"meta_{recordingTimestamp}.csv";
             
-            // Get frame dimensions from a quick capture (this is a bit of a hack)
-            // A better way would be to get it from the first valid frame.
-            // For now, we assume a resolution, e.g., 640x480.
-            Size frameSize = new Size(640, 480); // Ensure this matches the sender's resolution
+            // Ensure frame size has been determined
+            if (_frameSize.Width == 0 && _frameSize.Height == 0)
+            {
+                Console.WriteLine("Warning: Frame size not determined yet. Cannot start recording.");
+                return;
+            }
 
-            videoWriter = new VideoWriter(videoPath, FourCC.H264, RECORDING_FPS, frameSize);
+            videoWriter = new VideoWriter(videoPath, FourCC.H264, RECORDING_FPS, _frameSize);
             csvWriter = new StreamWriter(csvPath);
             csvWriter.WriteLine("Timestamp,SequenceNumber,LatencyMs");
             

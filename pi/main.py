@@ -7,7 +7,7 @@ import threading
 # ==========================================
 #     CONFIGURATION
 # ==========================================
-PC_IP = "100.93.237.108"  # CHANGE THIS to your PC's Tailscale IP
+PC_IP = "100.100.100.100"  # CHANGE THIS to your PC's Tailscale IP
 VIDEO_PORT = 5001
 CONTROL_PORT = 5000
 RESOLUTION = (640, 480)
